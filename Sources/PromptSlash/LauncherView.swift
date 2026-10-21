@@ -293,6 +293,13 @@ private struct ClipRow: View {
     let clip: ClipItem
     let selected: Bool
 
+    static func ago(_ date: Date, now: Date) -> String {
+        let s = max(0, now.timeIntervalSince(date))
+        if s < 60 { return L("刚刚", "just now") }
+        if s < 3600 { return L("\(Int(s / 60)) 分钟前", "\(Int(s / 60))m ago") }
+        return L("\(Int(s / 3600)) 小时前", "\(Int(s / 3600))h ago")
+    }
+
     var body: some View {
         HStack(spacing: 7) {
             Image(systemName: "doc.on.clipboard")
@@ -303,10 +310,12 @@ private struct ClipRow: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 4)
-            Text(clip.date, format: .relative(presentation: .numeric, unitsStyle: .narrow))
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                Text(Self.ago(clip.date, now: context.date))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
         }
         .padding(.horizontal, 8)
         .frame(height: 40)
@@ -323,15 +332,7 @@ private struct ClipPreview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ScrollView {
-                Text(clip.text)
-                    .font(.system(size: 14.5))
-                    .lineSpacing(6)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 16)
-            }
+            SelectableText(text: clip.text, markdown: false)
             Divider()
             HStack(spacing: 8) {
                 Image(systemName: "doc.on.clipboard")
@@ -355,26 +356,11 @@ private struct PromptPreview: View {
     var body: some View {
         if let prompt {
             VStack(alignment: .leading, spacing: 0) {
-                ScrollView {
-                    Text(rendered(prompt.content))
-                        .font(.system(size: 14.5))
-                        .lineSpacing(6)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 16)
-                }
+                SelectableText(text: prompt.content, markdown: true)
             }
         } else {
             Color.clear
         }
-    }
-
-    private func rendered(_ s: String) -> AttributedString {
-        (try? AttributedString(
-            markdown: s,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        )) ?? AttributedString(s)
     }
 }
 
@@ -532,6 +518,123 @@ private struct ActionsOverlay: View {
             .shadow(color: .black.opacity(0.3), radius: 16, y: 6)
             .padding(.trailing, 10)
             .padding(.bottom, 48)
+        }
+    }
+}
+
+// MARK: - 可选中文字的预览（原生 NSTextView）
+
+/// 预览区：按在文字上可以顺畅选中 / 复制，按在文字以外的空白处可以拖动窗口
+struct SelectableText: NSViewRepresentable {
+    let text: String
+    var markdown = true
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scroll = FillingScrollView()
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.borderType = .noBorder
+
+        let tv = DragAwareTextView(frame: .zero)
+        tv.isEditable = false
+        tv.isSelectable = true
+        tv.drawsBackground = false
+        tv.isRichText = true
+        tv.textContainerInset = NSSize(width: 13, height: 14)
+        tv.isVerticallyResizable = true
+        tv.isHorizontallyResizable = false
+        tv.autoresizingMask = [.width]
+        tv.textContainer?.widthTracksTextView = true
+        tv.textContainer?.lineFragmentPadding = 5
+        tv.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        scroll.documentView = tv
+        apply(to: tv)
+        return scroll
+    }
+
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        guard let tv = scroll.documentView as? DragAwareTextView,
+              tv.source != text || tv.isMarkdown != markdown else { return }
+        apply(to: tv)
+        tv.scroll(.zero) // 切换条目时回到顶部
+    }
+
+    private func apply(to tv: DragAwareTextView) {
+        tv.source = text
+        tv.isMarkdown = markdown
+        tv.textStorage?.setAttributedString(Self.attributed(text, markdown: markdown))
+        tv.setSelectedRange(NSRange(location: 0, length: 0))
+    }
+
+    static func attributed(_ text: String, markdown: Bool) -> NSAttributedString {
+        let base = NSFont.systemFont(ofSize: 14.5)
+        let para = NSMutableParagraphStyle()
+        para.lineSpacing = 6
+        let attrs: [NSAttributedString.Key: Any] = [.font: base, .foregroundColor: NSColor.labelColor, .paragraphStyle: para]
+
+        guard markdown, let md = try? NSAttributedString(
+            markdown: text,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        ) else {
+            return NSAttributedString(string: text, attributes: attrs)
+        }
+        // 把 Markdown 的行内样式（粗体 / 斜体 / 代码）映射成字体
+        let out = NSMutableAttributedString(string: md.string, attributes: attrs)
+        let intentKey = NSAttributedString.Key("NSInlinePresentationIntent")
+        md.enumerateAttribute(intentKey, in: NSRange(location: 0, length: md.length)) { value, range, _ in
+            guard let raw = (value as? NSNumber)?.uintValue else { return }
+            let intent = InlinePresentationIntent(rawValue: raw)
+            var font = base
+            if intent.contains(.code) {
+                font = NSFont.monospacedSystemFont(ofSize: 13.5, weight: .regular)
+            } else {
+                var traits: NSFontDescriptor.SymbolicTraits = []
+                if intent.contains(.stronglyEmphasized) { traits.insert(.bold) }
+                if intent.contains(.emphasized) { traits.insert(.italic) }
+                if !traits.isEmpty, let f = NSFont(descriptor: base.fontDescriptor.withSymbolicTraits(traits), size: base.pointSize) {
+                    font = f
+                }
+            }
+            out.addAttribute(.font, value: font, range: range)
+        }
+        md.enumerateAttribute(.link, in: NSRange(location: 0, length: md.length)) { value, range, _ in
+            if let value { out.addAttribute(.link, value: value, range: range) }
+        }
+        return out
+    }
+}
+
+/// 文本视图至少和可视区域一样高，这样文字下方的空白处也能接收点击（用来拖动窗口）
+final class FillingScrollView: NSScrollView {
+    override func tile() {
+        super.tile()
+        if let tv = documentView as? NSTextView {
+            tv.minSize = NSSize(width: 0, height: contentSize.height)
+        }
+    }
+}
+
+final class DragAwareTextView: NSTextView {
+    var source = ""
+    var isMarkdown = true
+
+    /// 按在文字区域内：正常选字；按在文字以外的空白处：拖动窗口
+    override func mouseDown(with event: NSEvent) {
+        guard event.clickCount == 1, let lm = layoutManager, let tc = textContainer else {
+            super.mouseDown(with: event)
+            return
+        }
+        lm.ensureLayout(for: tc)
+        let p = convert(event.locationInWindow, from: nil)
+        var used = lm.usedRect(for: tc)
+        used.origin.x += textContainerOrigin.x
+        used.origin.y += textContainerOrigin.y
+        let textArea = used.insetBy(dx: -textContainerInset.width, dy: -textContainerInset.height)
+        if string.isEmpty || !textArea.contains(p) {
+            window?.performDrag(with: event)
+        } else {
+            super.mouseDown(with: event)
         }
     }
 }

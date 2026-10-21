@@ -44,12 +44,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         model.onSettingsChanged = { [weak self] in self?.applySettings() }
         model.hideWindow = { [weak self] in self?.hideWindow() }
         model.openSettings = { [weak self] in self?.openSettings() }
-        clipboardWatcher = ClipboardWatcher(model: model)
+        let demoDir = DemoCapture.outputDir
+        if demoDir == nil {
+            clipboardWatcher = ClipboardWatcher(model: model)
+        }
         let engine = SnippetEngine(model: model)
         snippets = engine
         model.requestSnippetPermission = { [weak engine] in engine?.requestPermission() }
         applySettings()
         installKeyMonitor()
+        if let demoDir {
+            showWindow()
+            DemoCapture.run(model: model, launcher: window, openSettings: { [weak self] in
+                self?.openSettings()
+                return self?.settingsWindow
+            }, dir: demoDir)
+            return
+        }
         enableLaunchAtLoginOnFirstRun()
         promptSnippetPermissionOnce()
         // 作为登录项开机启动时静默驻留（菜单栏 / 全局快捷键呼出），手动打开时才显示窗口

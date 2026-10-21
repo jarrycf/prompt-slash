@@ -399,6 +399,7 @@ final class SnippetPanel {
     }
 
     var isVisible: Bool { panel.isVisible }
+    var window: NSWindow { panel }
 
     /// 事件里的坐标是左上角原点（CG 坐标）
     func contains(cgPoint p: CGPoint) -> Bool {
