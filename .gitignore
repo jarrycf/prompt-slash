@@ -1,0 +1,15 @@
+# 构建产物
+.build/
+build/
+.swiftpm/
+*.xcodeproj/
+DerivedData/
+
+# 系统文件
+.DS_Store
+
+# 防止误提交本地数据
+prompts.json
+*.broken-*.json
+prompt-stash-*.json
+prompt-slash-*.json
