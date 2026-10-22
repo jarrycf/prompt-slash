@@ -104,6 +104,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return true
     }
 
+    /// ⌘Tab / 点击通知等方式切回本应用时，如果没有任何窗口可见，就把启动器显示出来
+    /// （切走时窗口会被自动收起，⌘Tab 不会触发 applicationShouldHandleReopen）
+    func applicationDidBecomeActive(_ notification: Notification) {
+        guard window != nil, DemoCapture.outputDir == nil else { return }
+        let anyVisible = NSApp.windows.contains { $0.isVisible && $0.canBecomeMain }
+        if !anyVisible { showWindow() }
+    }
+
     /// 像 Raycast 一样：切到别的应用时自动收起（窗口置顶时不收起）
     func applicationDidResignActive(_ notification: Notification) {
         guard model.hideOnDeactivate, !model.alwaysOnTop, window.isVisible else { return }
@@ -452,14 +460,9 @@ private struct TagSettingsSection: View {
 
     var body: some View {
         Section {
-            fixedRow(L("最近", "Recent"))
-            fixedRow(L("全部", "All"))
-            ForEach(model.viewFilters.filter { $0 == .pinned || $0 == .favorites }, id: \.self) { f in
-                HStack {
-                    Text(f.title)
-                    Spacer()
-                    deleteButton { model.hideView(f) }
-                }
+            // 内置视图固定显示，不可删除
+            ForEach(model.viewFilters, id: \.self) { f in
+                fixedRow(f.title)
             }
             ForEach(model.allTags) { tag in
                 HStack {

@@ -10,15 +10,18 @@ enum DemoCapture {
     }
 
     static func capture(_ window: NSWindow?, _ name: String, to dir: URL) {
-        guard let view = window?.contentView,
-              let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        guard let view = window?.contentView else { return }
+        // 先强制完成布局和重绘，避免截到上一帧的画面
+        view.layoutSubtreeIfNeeded()
+        view.needsDisplay = true
+        window?.displayIfNeeded()
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
         view.cacheDisplay(in: view.bounds, to: rep)
         try? rep.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent(name + ".png"))
     }
 
     static func run(model: AppModel, launcher: NSWindow, openSettings: @escaping () -> NSWindow?, dir: URL) {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let panel = SnippetPanel()
         var steps: [() -> Void] = []
         func step(_ f: @escaping () -> Void) { steps.append(f) }
         func shot(_ name: String) { step { capture(launcher, name, to: dir) } }
@@ -59,8 +62,12 @@ enum DemoCapture {
         step { capture(settingsWindow, "09_settings", to: dir); settingsWindow?.orderOut(nil) }
 
         // 斜杠片段候选面板：输入 //、//f、//fy 时的样子
+        var panel = SnippetPanel()
         for (i, q) in ["", "f", "fy"].enumerated() {
             step {
+                // 每个状态新建一个面板：尺寸不变时 SwiftUI 不一定会重新渲染，新面板保证截到的是当前状态
+                panel.hide()
+                panel = SnippetPanel()
                 panel.state.trigger = model.snippetTrigger
                 panel.state.query = q
                 panel.state.items = Snippet.candidates(model.prompts, query: q)

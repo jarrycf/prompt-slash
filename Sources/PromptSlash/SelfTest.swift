@@ -224,7 +224,6 @@ enum SelfTest {
 
         // 15. 标签管理（测试后恢复用户的标签设置）
         let savedTagList = UserDefaults.standard.object(forKey: "tagList")
-        let savedHidden = UserDefaults.standard.object(forKey: "hiddenViews")
         let tmp5 = FileManager.default.temporaryDirectory
             .appendingPathComponent("promptslash-selftest-\(UUID().uuidString)/prompts.json")
         try? FileManager.default.createDirectory(at: tmp5.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -238,13 +237,10 @@ enum SelfTest {
         check(!m5.allTags.contains { $0.value == "code" }, "可以删除预设标签")
         check(m5.prompts.first?.tags == ["writing"], "删除标签会从提示词上移除")
         check(m5.filter == .recent, "删除当前所在的标签后回到「最近」")
-        m5.hideView(.pinned)
-        m5.hideView(.all); m5.hideView(.recent)
-        check(m5.viewFilters == [.recent, .all, .favorites], "置顶可删除，最近 / 全部不可删除")
+        check(m5.viewFilters == [.recent, .all, .pinned, .favorites], "最近 / 全部 / 置顶 / 收藏固定存在")
         m5.restoreDefaultTags()
-        check(m5.viewFilters.count == 4 && m5.tagDefs.count == TagDef.predefined.count, "恢复默认")
+        check(m5.tagDefs.count == TagDef.predefined.count, "恢复默认")
         UserDefaults.standard.set(savedTagList, forKey: "tagList")
-        UserDefaults.standard.set(savedHidden, forKey: "hiddenViews")
         try? FileManager.default.removeItem(at: tmp5.deletingLastPathComponent())
 
         // 8. 全局快捷键

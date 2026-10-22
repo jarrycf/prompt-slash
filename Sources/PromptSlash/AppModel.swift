@@ -115,11 +115,6 @@ final class AppModel {
             UserDefaults.standard.set(tagDefs.map { ["value": $0.value, "zh": $0.zh, "en": $0.en] }, forKey: Keys.tagList)
         }
     }
-    /// 被删除（隐藏）的内置视图：置顶 / 收藏。「最近」「全部」不可删除
-    var hiddenViews: Set<String> {
-        didSet { UserDefaults.standard.set(Array(hiddenViews).sorted(), forKey: Keys.hiddenViews) }
-    }
-
     /// 是否已获得辅助功能权限（运行时状态）
     var snippetPermission = false
 
@@ -142,7 +137,6 @@ final class AppModel {
         static let showMenuBarIcon = "showMenuBarIcon"
         static let globalHotKey = "globalHotKey"
         static let tagList = "tagList"
-        static let hiddenViews = "hiddenViews"
         static let snippetsEnabled = "snippetsEnabled"
         static let snippetTrigger = "snippetTrigger"
         static let hotKeyCode = "hotKeyCode"
@@ -213,7 +207,7 @@ final class AppModel {
         } else {
             tagDefs = TagDef.predefined
         }
-        hiddenViews = Set(d.stringArray(forKey: Keys.hiddenViews) ?? [])
+        d.removeObject(forKey: "hiddenViews") // 旧版本可隐藏置顶 / 收藏，现在它们固定显示
         snippetsEnabled = d.bool(forKey: Keys.snippetsEnabled)
         // 单个 "/" 和很多 AI 工具的斜杠命令冲突，默认改为 "//"（旧设置的 "/" 也一并升级）
         let savedTrigger = (d.string(forKey: Keys.snippetTrigger) ?? "//").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -319,13 +313,8 @@ final class AppModel {
 
     var filterTags: [TagDef] { allTags }
 
-    /// 筛选下拉里的内置视图（最近、全部始终存在）
-    var viewFilters: [Filter] {
-        var list: [Filter] = [.recent, .all]
-        if !hiddenViews.contains("pinned") { list.append(.pinned) }
-        if !hiddenViews.contains("favorites") { list.append(.favorites) }
-        return list
-    }
+    /// 筛选下拉里的内置视图：最近、全部、置顶、收藏，固定存在、不可删除
+    let viewFilters: [Filter] = [.recent, .all, .pinned, .favorites]
 
     func usage(ofTag value: String) -> Int { prompts.filter { $0.tags.contains(value) }.count }
 
@@ -367,18 +356,8 @@ final class AppModel {
         if filter == .tag(value) { filter = .recent }
     }
 
-    func hideView(_ f: Filter) {
-        switch f {
-        case .pinned: hiddenViews.insert("pinned")
-        case .favorites: hiddenViews.insert("favorites")
-        default: return // 最近、全部不可删除
-        }
-        if filter == f { filter = .recent }
-    }
-
     func restoreDefaultTags() {
         tagDefs = TagDef.predefined
-        hiddenViews = []
     }
 
     // MARK: 存储
