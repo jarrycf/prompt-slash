@@ -41,5 +41,14 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-codesign --force --deep --sign - "$APP"
+# 签名：优先使用本机的固定签名证书（重新打包后「辅助功能」授权不会失效），
+# 没有这张证书时退回临时签名（ad-hoc），其他人从源码构建也能正常使用
+SIGN_ID="Prompt Slash Local Signing"
+if security find-identity -p codesigning 2>/dev/null | grep -q "\"$SIGN_ID\""; then
+  codesign --force --deep --timestamp=none --sign "$SIGN_ID" "$APP"
+  echo "签名：$SIGN_ID"
+else
+  codesign --force --deep --sign - "$APP"
+  echo "签名：临时签名（ad-hoc）"
+fi
 echo "已生成：$APP"
